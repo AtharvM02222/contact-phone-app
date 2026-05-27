@@ -42,7 +42,6 @@
           "savePhotosPermission": "Allow Contacts to save photos."
         }
       ]
-    ]
     ],
     "extra": {
       "eas": {
