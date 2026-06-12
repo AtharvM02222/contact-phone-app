@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
-import { addContact } from "../utils/storage";
+import { addContact, isValidPhone } from "../utils/storage";
 import { Contact } from "../utils/storage";
 
 interface Props {
@@ -25,6 +25,7 @@ export default function AddScreen({ navigation }: Props) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
 
   async function pickPhoto() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -41,8 +42,13 @@ export default function AddScreen({ navigation }: Props) {
     if (!result.canceled && result.assets[0]) {
       const src = result.assets[0].uri;
       const dest = `${FileSystem.documentDirectory}photo_${Date.now()}.jpg`;
-      await FileSystem.copyAsync({ from: src, to: dest });
-      setPhotoUri(dest);
+      try {
+        await FileSystem.copyAsync({ from: src, to: dest });
+        setPhotoUri(dest);
+      } catch {
+        Alert.alert('Error', 'Could not save the photo. Please try again.');
+        // photoUri remains unchanged
+      }
     }
   }
 
@@ -60,8 +66,13 @@ export default function AddScreen({ navigation }: Props) {
     if (!result.canceled && result.assets[0]) {
       const src = result.assets[0].uri;
       const dest = `${FileSystem.documentDirectory}photo_${Date.now()}.jpg`;
-      await FileSystem.copyAsync({ from: src, to: dest });
-      setPhotoUri(dest);
+      try {
+        await FileSystem.copyAsync({ from: src, to: dest });
+        setPhotoUri(dest);
+      } catch {
+        Alert.alert('Error', 'Could not save the photo. Please try again.');
+        // photoUri remains unchanged
+      }
     }
   }
 
@@ -74,18 +85,24 @@ export default function AddScreen({ navigation }: Props) {
   }
 
   async function handleSave() {
-    const trimName = name.trim();
+    setPhoneError(null);
     const trimPhone = phone.trim();
-    if (!trimName) { Alert.alert("Enter a name"); return; }
-    if (!trimPhone) { Alert.alert("Enter a phone number"); return; }
-
+    if (!isValidPhone(trimPhone)) {
+      setPhoneError('Enter a valid phone number (digits, +, -, spaces, up to 20 chars).');
+      return;
+    }
     const contact: Contact = {
       id: Date.now().toString(),
-      name: trimName,
+      name: name.trim() || null,   // name is optional
       phone: trimPhone,
       photoUri,
     };
-    await addContact(contact);
+    try {
+      await addContact(contact);
+    } catch {
+      Alert.alert('Error', 'Could not save contact. Please try again.');
+      return;   // Do NOT call goBack on failure
+    }
     navigation.goBack();
   }
 
@@ -146,6 +163,9 @@ export default function AddScreen({ navigation }: Props) {
               keyboardType="phone-pad"
               returnKeyType="done"
             />
+            {phoneError && (
+              <Text style={styles.phoneErrorText}>{phoneError}</Text>
+            )}
           </View>
         </View>
 
@@ -263,5 +283,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
     letterSpacing: 0.2,
+  },
+  phoneErrorText: {
+    fontSize: 13,
+    color: '#E53935',
+    marginTop: 4,
+    marginBottom: 8,
+    fontWeight: '500',
   },
 });
