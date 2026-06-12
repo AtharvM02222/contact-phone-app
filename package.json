@@ -36,9 +36,14 @@
   "jest": {
     "preset": "react-native",
     "testEnvironment": "node",
-    "transformIgnorePatterns": [
-      "node_modules/(?!(react-native|@react-native|@react-native-async-storage)/)"
+    "testMatch": [
+      "<rootDir>/src/__tests__/**/*.test.ts",
+      "<rootDir>/src/__tests__/**/*.test.tsx"
     ],
-    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"]
+    "transformIgnorePatterns": [
+      "node_modules/(?!(react-native|@react-native|@react-native-async-storage|expo|expo-file-system|expo-image-picker|expo-modules-core)/)"
+    ],
+    "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
+    "forceExit": true
   }
 }
