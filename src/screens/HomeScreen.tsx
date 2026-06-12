@@ -36,16 +36,17 @@ export function getColor(seed: string): string {
 
 export function initials(name: string | null): string {
   if (!name) return '?';
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .filter(w => w.length > 0)
-      .map(w => w[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2) || '?'
-  );
+  const letters = name
+    .trim()
+    .split(/\s+/)
+    .filter(w => w.length > 0)
+    .map(w => w.replace(/[^a-zA-Z]/g, ''))  // keep only letters from each word
+    .filter(w => w.length > 0)
+    .map(w => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+  return letters || '?';
 }
 
 function PlaceholderTile({ name, size }: { name: string | null; size: number }) {
