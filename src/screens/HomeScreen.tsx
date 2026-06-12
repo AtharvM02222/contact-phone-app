@@ -4,6 +4,7 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   Image,
   StyleSheet,
   Dimensions,
@@ -12,11 +13,11 @@ import {
   StatusBar,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Contact, loadContacts, deleteContact } from "../utils/storage";
+import { Contact, loadContacts, deleteContact, cleanPhone } from "../utils/storage";
 
 const { width } = Dimensions.get("window");
 const COLS = 2;
-const TILE = (width - 48) / COLS;
+export const TILE = (width - 48) / COLS;
 
 const INITIALS_COLORS = [
   "#1A1A1A",
@@ -27,20 +28,59 @@ const INITIALS_COLORS = [
   "#2B1F3D",
 ];
 
-function getColor(name: string) {
+export function getColor(seed: string): string {
   let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  for (let i = 0; i < seed.length; i++) h = seed.charCodeAt(i) + ((h << 5) - h);
   return INITIALS_COLORS[Math.abs(h) % INITIALS_COLORS.length];
 }
 
-function initials(name: string) {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+export function initials(name: string | null): string {
+  if (!name) return '?';
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .filter(w => w.length > 0)
+      .map(w => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || '?'
+  );
+}
+
+function PlaceholderTile({ name, size }: { name: string | null; size: number }) {
+  const label = initials(name);
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: getColor(name ?? ''),
+        justifyContent: 'center',
+        alignItems: 'center',
+      }}
+    >
+      <Text style={{ fontSize: size * 0.28, fontWeight: '700', color: '#fff', letterSpacing: -1 }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function CallIcon({ size, color }: { size: number; color: string }) {
+  return (
+    <Text style={{ fontSize: size * 0.65, color, lineHeight: size }}>📞</Text>
+  );
+}
+
+/**
+ * Pure function: toggles selectedId.
+ * Same id → null (dismiss); different id → new id (show overlay).
+ * Exported so unit/property tests can call it directly.
+ * Validates: Requirements 4.1, 4.3, 4.4, 4.5
+ */
+export function handleTilePress_pure(selectedId: string | null, contactId: string): string | null {
+  return selectedId === contactId ? null : contactId;
 }
 
 interface Props {
@@ -49,69 +89,93 @@ interface Props {
 
 export default function HomeScreen({ navigation }: Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
-  const [editMode, setEditMode] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
-      loadContacts().then(setContacts);
+      loadContacts()
+        .then(setContacts)
+        .catch(() => {
+          Alert.alert('Error', 'Could not load contacts. Please restart the app.');
+          setContacts([]);
+        });
     }, [])
   );
 
-  async function handleCall(contact: Contact) {
-    const url = `tel:${contact.phone.replace(/\s|-/g, "")}`;
-    const can = await Linking.canOpenURL(url);
-    if (can) {
-      await Linking.openURL(url);
-    } else {
-      Alert.alert("Error", "Cannot make calls on this device.");
+  function handleTilePress(item: Contact) {
+    setSelectedId(prev => prev === item.id ? null : item.id);
+  }
+
+  async function handleCallPress(contact: Contact) {
+    if (!contact.phone) {
+      Alert.alert('No Number', 'This contact has no phone number.');
+      return;
+    }
+    const cleaned = cleanPhone(contact.phone);
+    const url = `tel:${cleaned}`;
+    const canOpen = await Linking.canOpenURL(url);
+    if (!canOpen) {
+      Alert.alert('Not Supported', 'Calls are not supported on this device.');
+      return; // overlay stays visible
+    }
+    setSelectedId(null);
+    await Linking.openURL(url);
+  }
+
+  function handleLongPress(contact: Contact) {
+    setSelectedId(null);
+    Alert.alert(
+      'Remove Contact?',
+      undefined,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => handleDelete(contact),
+        },
+      ]
+    );
+  }
+
+  async function handleDelete(contact: Contact) {
+    try {
+      await deleteContact(contact.id);
+      setContacts(prev => prev.filter(c => c.id !== contact.id));
+    } catch {
+      Alert.alert('Error', 'Could not delete contact. Please try again.');
     }
   }
 
-  async function handleDelete(id: string) {
-    Alert.alert("Remove contact?", undefined, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          await deleteContact(id);
-          setContacts((prev) => prev.filter((c) => c.id !== id));
-        },
-      },
-    ]);
-  }
+  const renderItem = ({ item }: { item: Contact }) => {
+    const isSelected = selectedId === item.id;
+    return (
+      <TouchableOpacity
+        activeOpacity={1}
+        delayLongPress={500}
+        onPress={() => handleTilePress(item)}
+        onLongPress={() => handleLongPress(item)}
+        style={styles.tile}
+      >
+        {item.photoUri ? (
+          <Image source={{ uri: item.photoUri }} style={styles.photo} />
+        ) : (
+          <PlaceholderTile name={item.name} size={TILE} />
+        )}
 
-  const renderItem = ({ item }: { item: Contact }) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() => !editMode && handleCall(item)}
-      style={styles.tile}
-    >
-      {item.photoUri ? (
-        <Image source={{ uri: item.photoUri }} style={styles.photo} />
-      ) : (
-        <View style={[styles.photo, { backgroundColor: getColor(item.name) }]}>
-          <Text style={styles.initialsText}>{initials(item.name)}</Text>
-        </View>
-      )}
-
-      <View style={styles.nameBar}>
-        <Text style={styles.nameText} numberOfLines={1}>
-          {item.name}
-        </Text>
-      </View>
-
-      {editMode && (
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => handleDelete(item.id)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.deleteBtnText}>—</Text>
-        </TouchableOpacity>
-      )}
-    </TouchableOpacity>
-  );
+        {isSelected && (
+          <TouchableOpacity
+            style={styles.overlay}
+            activeOpacity={0.9}
+            onPress={() => handleCallPress(item)}
+            accessibilityLabel="Call"
+          >
+            <CallIcon size={56} color="#fff" />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.root}>
@@ -120,42 +184,35 @@ export default function HomeScreen({ navigation }: Props) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Contacts</Text>
-        {contacts.length > 0 && (
-          <TouchableOpacity onPress={() => setEditMode((e) => !e)}>
-            <Text style={[styles.headerBtn, editMode && styles.headerBtnActive]}>
-              {editMode ? "Done" : "Edit"}
-            </Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Add')}
+          accessibilityLabel="Add Contact"
+          style={styles.addContactBtn}
+        >
+          <Text style={styles.addBtn}>+</Text>
+        </TouchableOpacity>
       </View>
 
       {contacts.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No contacts</Text>
-          <Text style={styles.emptySubtitle}>
-            Tap the + button below to add someone
-          </Text>
+          <Text style={styles.emptyTitle}>No Contacts Yet</Text>
+          <Text style={styles.emptySubtitle}>Tap + to add your first contact</Text>
         </View>
       ) : (
-        <FlatList
-          data={contacts}
-          keyExtractor={(item) => item.id}
-          numColumns={COLS}
-          contentContainerStyle={styles.grid}
-          columnWrapperStyle={{ gap: 16 }}
-          ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
-          renderItem={renderItem}
-        />
+        <TouchableWithoutFeedback onPress={() => setSelectedId(null)}>
+          <View style={{ flex: 1 }}>
+            <FlatList
+              data={contacts}
+              keyExtractor={(item) => item.id}
+              numColumns={COLS}
+              contentContainerStyle={styles.grid}
+              columnWrapperStyle={{ gap: 16 }}
+              ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+              renderItem={renderItem}
+            />
+          </View>
+        </TouchableWithoutFeedback>
       )}
-
-      {/* Add button */}
-      <TouchableOpacity
-        style={styles.fab}
-        activeOpacity={0.8}
-        onPress={() => navigation.navigate("Add")}
-      >
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -181,21 +238,24 @@ const styles = StyleSheet.create({
     color: "#111",
     letterSpacing: -0.5,
   },
-  headerBtn: {
-    fontSize: 17,
-    color: "#555",
-    fontWeight: "500",
+  addContactBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  headerBtnActive: {
+  addBtn: {
+    fontSize: 32,
     color: "#111",
-    fontWeight: "700",
+    fontWeight: "300",
+    lineHeight: 36,
   },
   grid: {
     padding: 16,
-    paddingBottom: 100,
   },
   tile: {
     width: TILE,
+    height: TILE,
     borderRadius: 16,
     overflow: "hidden",
     backgroundColor: "#F5F5F5",
@@ -203,44 +263,12 @@ const styles = StyleSheet.create({
   photo: {
     width: TILE,
     height: TILE,
-    justifyContent: "center",
-    alignItems: "center",
   },
-  initialsText: {
-    fontSize: TILE * 0.28,
-    fontWeight: "700",
-    color: "#fff",
-    letterSpacing: -1,
-  },
-  nameBar: {
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    backgroundColor: "#fff",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E8E8E8",
-  },
-  nameText: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: "#111",
-    textAlign: "center",
-  },
-  deleteBtn: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#E53935",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  deleteBtnText: {
-    color: "#fff",
-    fontSize: 20,
-    fontWeight: "700",
-    lineHeight: 22,
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   empty: {
     flex: 1,
@@ -259,27 +287,5 @@ const styles = StyleSheet.create({
     color: "#888",
     textAlign: "center",
     lineHeight: 22,
-  },
-  fab: {
-    position: "absolute",
-    bottom: 32,
-    right: 24,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#111",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabText: {
-    fontSize: 32,
-    color: "#fff",
-    fontWeight: "300",
-    lineHeight: 36,
   },
 });
