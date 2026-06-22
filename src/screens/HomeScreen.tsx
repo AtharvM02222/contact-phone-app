@@ -12,13 +12,32 @@ import {
   Linking,
   StatusBar,
 } from "react-native";
+import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
 import { Contact, loadContacts, deleteContact, cleanPhone } from "../utils/storage";
 
 const { width } = Dimensions.get("window");
-const COLS = 2;
-export const TILE = (width - 48) / COLS;
 
+// ─── Master size constants ────────────────────────────────────────────────────
+const PADDING = 16;        // outer horizontal padding (each side)
+const GAP     = 12;        // gap between cards
+const COLS    = 2;
+
+/** Compute tile size given a scale multiplier (0.0 → min, 1.0 → max). */
+function computeTileSize(scale: number): number {
+  const baseSize  = (width - PADDING * 2 - GAP) / COLS; // two columns, one gap
+  const minFactor = 0.55;  // smallest cards (~55 % of base)
+  const maxFactor = 1.20;  // largest cards (~120 % of base, 1-col feel)
+  return baseSize * (minFactor + (maxFactor - minFactor) * scale);
+}
+
+/** Compute how many columns fit at a given tile size. */
+function computeCols(tileSize: number): number {
+  const available = width - PADDING * 2;
+  return Math.max(1, Math.floor((available + GAP) / (tileSize + GAP)));
+}
+
+// ─── Initials helpers ─────────────────────────────────────────────────────────
 const INITIALS_COLORS = [
   "#1A1A1A",
   "#2D4A6B",
@@ -35,89 +54,94 @@ export function getColor(seed: string): string {
 }
 
 export function initials(name: string | null): string {
-  if (!name) return '?';
+  if (!name) return "?";
   const letters = name
     .trim()
     .split(/\s+/)
     .filter(w => w.length > 0)
-    .map(w => w.replace(/[^a-zA-Z]/g, ''))  // keep only letters from each word
+    .map(w => w.replace(/[^a-zA-Z]/g, ""))
     .filter(w => w.length > 0)
     .map(w => w[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
-  return letters || '?';
+  return letters || "?";
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function PlaceholderTile({ name, size }: { name: string | null; size: number }) {
-  const label = initials(name);
   return (
     <View
       style={{
         width: size,
         height: size,
-        backgroundColor: getColor(name ?? ''),
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: getColor(name ?? ""),
+        justifyContent: "center",
+        alignItems: "center",
       }}
     >
-      <Text style={{ fontSize: size * 0.28, fontWeight: '700', color: '#fff', letterSpacing: -1 }}>
-        {label}
+      <Text style={{ fontSize: size * 0.28, fontWeight: "700", color: "#fff", letterSpacing: -1 }}>
+        {initials(name)}
       </Text>
     </View>
   );
 }
 
 function CallIcon({ size, color }: { size: number; color: string }) {
-  return (
-    <Text style={{ fontSize: size * 0.65, color, lineHeight: size }}>📞</Text>
-  );
+  return <Text style={{ fontSize: size * 0.65, color, lineHeight: size }}>📞</Text>;
 }
 
 /**
  * Pure function: toggles selectedId.
- * Same id → null (dismiss); different id → new id (show overlay).
  * Exported so unit/property tests can call it directly.
- * Validates: Requirements 4.1, 4.3, 4.4, 4.5
  */
 export function handleTilePress_pure(selectedId: string | null, contactId: string): string | null {
   return selectedId === contactId ? null : contactId;
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
 interface Props {
   navigation: any;
 }
 
 export default function HomeScreen({ navigation }: Props) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [contacts, setContacts]       = useState<Contact[]>([]);
+  const [selectedId, setSelectedId]   = useState<string | null>(null);
+  // cardScale: 0 = smallest, 1 = largest
+  const [cardScale, setCardScale]     = useState<number>(0.5);
+  const [showSizer, setShowSizer]     = useState<boolean>(false);
+
+  const tileSize = computeTileSize(cardScale);
+  const numCols  = computeCols(tileSize);
+  // actual tile fills the available space perfectly for the current column count
+  const actualTile = (width - PADDING * 2 - GAP * (numCols - 1)) / numCols;
 
   useFocusEffect(
     useCallback(() => {
       loadContacts()
         .then(setContacts)
         .catch(() => {
-          Alert.alert('Error', 'Could not load contacts. Please restart the app.');
+          Alert.alert("Error", "Could not load contacts. Please restart the app.");
           setContacts([]);
         });
     }, [])
   );
 
   function handleTilePress(item: Contact) {
-    setSelectedId(prev => prev === item.id ? null : item.id);
+    setSelectedId(prev => (prev === item.id ? null : item.id));
   }
 
   async function handleCallPress(contact: Contact) {
     if (!contact.phone) {
-      Alert.alert('No Number', 'This contact has no phone number.');
+      Alert.alert("No Number", "This contact has no phone number.");
       return;
     }
     const cleaned = cleanPhone(contact.phone);
     const url = `tel:${cleaned}`;
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {
-      Alert.alert('Not Supported', 'Calls are not supported on this device.');
-      return; // overlay stays visible
+      Alert.alert("Not Supported", "Calls are not supported on this device.");
+      return;
     }
     setSelectedId(null);
     await Linking.openURL(url);
@@ -125,18 +149,14 @@ export default function HomeScreen({ navigation }: Props) {
 
   function handleLongPress(contact: Contact) {
     setSelectedId(null);
-    Alert.alert(
-      'Remove Contact?',
-      undefined,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => handleDelete(contact),
-        },
-      ]
-    );
+    Alert.alert("Remove Contact?", undefined, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => handleDelete(contact),
+      },
+    ]);
   }
 
   async function handleDelete(contact: Contact) {
@@ -144,7 +164,7 @@ export default function HomeScreen({ navigation }: Props) {
       await deleteContact(contact.id);
       setContacts(prev => prev.filter(c => c.id !== contact.id));
     } catch {
-      Alert.alert('Error', 'Could not delete contact. Please try again.');
+      Alert.alert("Error", "Could not delete contact. Please try again.");
     }
   }
 
@@ -156,12 +176,19 @@ export default function HomeScreen({ navigation }: Props) {
         delayLongPress={500}
         onPress={() => handleTilePress(item)}
         onLongPress={() => handleLongPress(item)}
-        style={styles.tile}
+        style={[
+          styles.tile,
+          {
+            width: actualTile,
+            height: actualTile,
+            borderRadius: 12 + actualTile * 0.02,
+          },
+        ]}
       >
         {item.photoUri ? (
-          <Image source={{ uri: item.photoUri }} style={styles.photo} />
+          <Image source={{ uri: item.photoUri }} style={{ width: actualTile, height: actualTile }} />
         ) : (
-          <PlaceholderTile name={item.name} size={TILE} />
+          <PlaceholderTile name={item.name} size={actualTile} />
         )}
 
         {isSelected && (
@@ -171,7 +198,7 @@ export default function HomeScreen({ navigation }: Props) {
             onPress={() => handleCallPress(item)}
             accessibilityLabel="Call"
           >
-            <CallIcon size={56} color="#fff" />
+            <CallIcon size={actualTile * 0.4} color="#fff" />
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -182,17 +209,52 @@ export default function HomeScreen({ navigation }: Props) {
     <View style={styles.root}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header */}
+      {/* ── Header ── */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Contacts</Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Add')}
-          accessibilityLabel="Add Contact"
-          style={styles.addContactBtn}
-        >
-          <Text style={styles.addBtn}>+</Text>
-        </TouchableOpacity>
+
+        <View style={styles.headerActions}>
+          {/* Size toggle button */}
+          <TouchableOpacity
+            onPress={() => setShowSizer(v => !v)}
+            accessibilityLabel="Resize cards"
+            style={[styles.iconBtn, showSizer && styles.iconBtnActive]}
+          >
+            <Text style={[styles.iconBtnText, showSizer && styles.iconBtnTextActive]}>⊞</Text>
+          </TouchableOpacity>
+
+          {/* Add contact button */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Add")}
+            accessibilityLabel="Add Contact"
+            style={styles.iconBtn}
+          >
+            <Text style={styles.addBtn}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* ── Card size slider panel ── */}
+      {showSizer && (
+        <View style={styles.sizerPanel}>
+          <Text style={styles.sizerLabel}>Card Size</Text>
+          <View style={styles.sizerRow}>
+            <Text style={styles.sizerHint}>S</Text>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={1}
+              step={0.01}
+              value={cardScale}
+              onValueChange={setCardScale}
+              minimumTrackTintColor="#111"
+              maximumTrackTintColor="#D0D0D0"
+              thumbTintColor="#111"
+            />
+            <Text style={styles.sizerHint}>L</Text>
+          </View>
+        </View>
+      )}
 
       {contacts.length === 0 ? (
         <View style={styles.empty}>
@@ -204,11 +266,13 @@ export default function HomeScreen({ navigation }: Props) {
           <View style={{ flex: 1 }}>
             <FlatList
               data={contacts}
-              keyExtractor={(item) => item.id}
-              numColumns={COLS}
-              contentContainerStyle={styles.grid}
-              columnWrapperStyle={{ gap: 16 }}
-              ItemSeparatorComponent={() => <View style={{ height: 16 }} />}
+              keyExtractor={item => item.id}
+              // key forces FlatList to remount when column count changes
+              key={numCols}
+              numColumns={numCols}
+              contentContainerStyle={[styles.grid, { padding: PADDING }]}
+              columnWrapperStyle={numCols > 1 ? { gap: GAP } : undefined}
+              ItemSeparatorComponent={() => <View style={{ height: GAP }} />}
               renderItem={renderItem}
             />
           </View>
@@ -223,6 +287,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
+
+  // ── Header ──
   header: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -239,11 +305,27 @@ const styles = StyleSheet.create({
     color: "#111",
     letterSpacing: -0.5,
   },
-  addContactBtn: {
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  iconBtn: {
     minWidth: 44,
     minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  iconBtnActive: {
+    backgroundColor: "#111",
+  },
+  iconBtnText: {
+    fontSize: 22,
+    color: "#111",
+  },
+  iconBtnTextActive: {
+    color: "#fff",
   },
   addBtn: {
     fontSize: 32,
@@ -251,26 +333,56 @@ const styles = StyleSheet.create({
     fontWeight: "300",
     lineHeight: 36,
   },
+
+  // ── Sizer panel ──
+  sizerPanel: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E0E0E0",
+    backgroundColor: "#FAFAFA",
+  },
+  sizerLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#888",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  sizerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  sizerHint: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#888",
+    width: 14,
+    textAlign: "center",
+  },
+
+  // ── Grid ──
   grid: {
-    padding: 16,
+    // padding applied dynamically via contentContainerStyle
   },
   tile: {
-    width: TILE,
-    height: TILE,
-    borderRadius: 16,
     overflow: "hidden",
     backgroundColor: "#F5F5F5",
   },
-  photo: {
-    width: TILE,
-    height: TILE,
-  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
   },
+
+  // ── Empty state ──
   empty: {
     flex: 1,
     justifyContent: "center",
