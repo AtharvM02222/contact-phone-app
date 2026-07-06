@@ -146,7 +146,11 @@ export default function HomeScreen({ navigation }: Props) {
 
   function handleCardScaleChange(newScale: number) {
     setCardScale(newScale);
-    saveUIPreferences({ cardScale: newScale, showSizer });
+    // Use callback to get current showSizer value and avoid stale closure
+    setShowSizer(currentShowSizer => {
+      saveUIPreferences({ cardScale: newScale, showSizer: currentShowSizer });
+      return currentShowSizer;
+    });
   }
 
   function handleShowSizerToggle() {
