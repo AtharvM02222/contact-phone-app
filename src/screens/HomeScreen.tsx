@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useFocusEffect } from "@react-navigation/native";
-import { Contact, loadContacts, deleteContact, cleanPhone } from "../utils/storage";
+import { Contact, loadContacts, deleteContact, cleanPhone, loadUIPreferences, saveUIPreferences } from "../utils/storage";
 
 const { width } = Dimensions.get("window");
 
@@ -118,17 +118,43 @@ export default function HomeScreen({ navigation }: Props) {
 
   useFocusEffect(
     useCallback(() => {
+      // Load contacts
       loadContacts()
         .then(setContacts)
         .catch(() => {
           Alert.alert("Error", "Could not load contacts. Please restart the app.");
           setContacts([]);
         });
+      
+      // Load UI preferences
+      loadUIPreferences()
+        .then(prefs => {
+          setCardScale(prefs.cardScale);
+          setShowSizer(prefs.showSizer);
+        })
+        .catch(() => {
+          // Use defaults if loading fails
+          setCardScale(0.5);
+          setShowSizer(false);
+        });
     }, [])
   );
 
   function handleTilePress(item: Contact) {
     setSelectedId(prev => (prev === item.id ? null : item.id));
+  }
+
+  function handleCardScaleChange(newScale: number) {
+    setCardScale(newScale);
+    saveUIPreferences({ cardScale: newScale, showSizer });
+  }
+
+  function handleShowSizerToggle() {
+    setShowSizer(prev => {
+      const newValue = !prev;
+      saveUIPreferences({ cardScale, showSizer: newValue });
+      return newValue;
+    });
   }
 
   async function handleCallPress(contact: Contact) {
@@ -216,7 +242,7 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={styles.headerActions}>
           {/* Size toggle button */}
           <TouchableOpacity
-            onPress={() => setShowSizer(v => !v)}
+            onPress={handleShowSizerToggle}
             accessibilityLabel="Resize cards"
             style={[styles.iconBtn, showSizer && styles.iconBtnActive]}
           >
@@ -246,7 +272,7 @@ export default function HomeScreen({ navigation }: Props) {
               maximumValue={1}
               step={0.01}
               value={cardScale}
-              onValueChange={setCardScale}
+              onValueChange={handleCardScaleChange}
               minimumTrackTintColor="#111"
               maximumTrackTintColor="#D0D0D0"
               thumbTintColor="#111"

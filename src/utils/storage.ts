@@ -8,6 +8,12 @@ export interface Contact {
 }
 
 const KEY = "contacts_v1";
+const UI_PREFS_KEY = "ui_preferences_v1";
+
+export interface UIPreferences {
+  cardScale: number;
+  showSizer: boolean;
+}
 
 /**
  * Strips whitespace, hyphens, parentheses, and dots from a phone string.
@@ -55,4 +61,21 @@ export async function addContact(contact: Contact): Promise<void> {
 export async function deleteContact(id: string): Promise<void> {
   const list = await loadContacts();
   await saveContacts(list.filter((c) => c.id !== id));
+}
+
+export async function loadUIPreferences(): Promise<UIPreferences> {
+  try {
+    const raw = await AsyncStorage.getItem(UI_PREFS_KEY);
+    return raw ? JSON.parse(raw) : { cardScale: 0.5, showSizer: false };
+  } catch {
+    return { cardScale: 0.5, showSizer: false };
+  }
+}
+
+export async function saveUIPreferences(prefs: UIPreferences): Promise<void> {
+  try {
+    await AsyncStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // Silently fail for UI preferences as they're non-critical
+  }
 }
