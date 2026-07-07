@@ -178,13 +178,13 @@ export default function HomeScreen({ navigation }: Props) {
     }
     const cleaned = cleanPhone(contact.phone);
     const url = `tel:${cleaned}`;
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      Alert.alert("Not Supported", "Calls are not supported on this device.");
-      return;
+    
+    try {
+      setSelectedId(null);
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert("Error", "Unable to make a call. Please check your device settings.");
     }
-    setSelectedId(null);
-    await Linking.openURL(url);
   }
 
   function handleLongPress(contact: Contact) {
