@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -110,43 +110,52 @@ export default function HomeScreen({ navigation }: Props) {
   // cardScale: 0 = smallest, 1 = largest
   const [cardScale, setCardScale]     = useState<number>(0.5);
   const [showSizer, setShowSizer]     = useState<boolean>(false);
+  const userTouchedSizerRef = useRef(false);
 
   const tileSize = computeTileSize(cardScale);
   const numCols  = computeCols(tileSize);
   // actual tile fills the available space perfectly for the current column count
   const actualTile = (width - PADDING * 2 - GAP * (numCols - 1)) / numCols;
 
+  // Contacts still refresh on every focus (needed after Add/Delete).
   useFocusEffect(
     useCallback(() => {
-      // Load contacts
       loadContacts()
         .then(setContacts)
         .catch(() => {
           Alert.alert("Error", "Could not load contacts. Please restart the app.");
           setContacts([]);
         });
-      
-      // Load UI preferences
-      loadUIPreferences()
-        .then(prefs => {
-          setCardScale(prefs.cardScale);
-          setShowSizer(prefs.showSizer);
-        })
-        .catch(() => {
-          // Use defaults if loading fails
-          setCardScale(0.5);
-          setShowSizer(false);
-        });
     }, [])
   );
+
+  // UI prefs load ONCE on mount, not on every focus.
+  useEffect(() => {
+    loadUIPreferences()
+      .then(prefs => {
+        if (userTouchedSizerRef.current) return;
+        setCardScale(prefs.cardScale);
+        setShowSizer(prefs.showSizer);
+      })
+      .catch(() => {
+        if (userTouchedSizerRef.current) return;
+        setCardScale(0.5);
+        setShowSizer(false);
+      });
+  }, []);
 
   function handleTilePress(item: Contact) {
     setSelectedId(prev => (prev === item.id ? null : item.id));
   }
 
+  // Fires continuously while dragging — cheap, no I/O.
   function handleCardScaleChange(newScale: number) {
+    userTouchedSizerRef.current = true;
     setCardScale(newScale);
-    // Use callback to get current showSizer value and avoid stale closure
+  }
+
+  // Fires once on release — persist here instead.
+  function handleCardScaleComplete(newScale: number) {
     setShowSizer(currentShowSizer => {
       saveUIPreferences({ cardScale: newScale, showSizer: currentShowSizer });
       return currentShowSizer;
@@ -154,6 +163,7 @@ export default function HomeScreen({ navigation }: Props) {
   }
 
   function handleShowSizerToggle() {
+    userTouchedSizerRef.current = true;
     setShowSizer(prev => {
       const newValue = !prev;
       saveUIPreferences({ cardScale, showSizer: newValue });
@@ -277,6 +287,7 @@ export default function HomeScreen({ navigation }: Props) {
               step={0.01}
               value={cardScale}
               onValueChange={handleCardScaleChange}
+              onSlidingComplete={handleCardScaleComplete}
               minimumTrackTintColor="#111"
               maximumTrackTintColor="#D0D0D0"
               thumbTintColor="#111"
